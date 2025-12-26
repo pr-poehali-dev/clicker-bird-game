@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import Icon from '@/components/ui/icon';
+import { useToast } from '@/hooks/use-toast';
 
 interface Upgrade {
   id: number;
@@ -25,14 +26,31 @@ interface HighScore {
   date: string;
 }
 
+interface Achievement {
+  id: number;
+  name: string;
+  description: string;
+  icon: string;
+  requirement: (score: number, clicks: number, multiplier: number) => boolean;
+  reward: number;
+  unlocked: boolean;
+}
+
 const Index = () => {
+  const { toast } = useToast();
   const [score, setScore] = useState(0);
+  const [totalClicks, setTotalClicks] = useState(0);
   const [clickMultiplier, setClickMultiplier] = useState(1);
   const [birdAnimating, setBirdAnimating] = useState(false);
   const [scoreAnimating, setScoreAnimating] = useState(false);
   const [autoClickersOwned, setAutoClickersOwned] = useState<Record<number, number>>({});
   const [highScores, setHighScores] = useState<HighScore[]>([]);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const clickAudioRef = useRef<HTMLAudioElement | null>(null);
+  const upgradeAudioRef = useRef<HTMLAudioElement | null>(null);
+  const achievementAudioRef = useRef<HTMLAudioElement | null>(null);
   
   const [upgrades] = useState<Upgrade[]>([
     { id: 1, name: 'Золотое перо', cost: 10, multiplier: 2, icon: 'Feather' },
@@ -50,11 +68,44 @@ const Index = () => {
   ]);
 
   useEffect(() => {
+    const initialAchievements: Achievement[] = [
+      { id: 1, name: 'Первый клик', description: 'Сделай свой первый клик', icon: 'MousePointerClick', requirement: (s, c, m) => c >= 1, reward: 5, unlocked: false },
+      { id: 2, name: 'Кликер новичок', description: 'Набери 100 очков', icon: 'Target', requirement: (s, c, m) => s >= 100, reward: 20, unlocked: false },
+      { id: 3, name: 'Сотня кликов', description: 'Кликни 100 раз', icon: 'Hand', requirement: (s, c, m) => c >= 100, reward: 50, unlocked: false },
+      { id: 4, name: 'Богатей', description: 'Набери 1000 очков', icon: 'Coins', requirement: (s, c, m) => s >= 1000, reward: 100, unlocked: false },
+      { id: 5, name: 'Усилитель', description: 'Получи множитель x10', icon: 'Zap', requirement: (s, c, m) => m >= 10, reward: 150, unlocked: false },
+      { id: 6, name: 'Миллионер', description: 'Набери 10000 очков', icon: 'TrendingUp', requirement: (s, c, m) => s >= 10000, reward: 500, unlocked: false },
+    ];
+    setAchievements(initialAchievements);
+  }, []);
+
+  useEffect(() => {
     const savedScores = localStorage.getItem('birdClickerScores');
     if (savedScores) {
       setHighScores(JSON.parse(savedScores));
     }
   }, []);
+
+  useEffect(() => {
+    achievements.forEach((achievement) => {
+      if (!achievement.unlocked && achievement.requirement(score, totalClicks, clickMultiplier)) {
+        setAchievements((prev) =>
+          prev.map((a) =>
+            a.id === achievement.id ? { ...a, unlocked: true } : a
+          )
+        );
+        setScore((prev) => prev + achievement.reward);
+        if (soundEnabled && achievementAudioRef.current) {
+          achievementAudioRef.current.play();
+        }
+        toast({
+          title: `🏆 Достижение разблокировано!`,
+          description: `${achievement.name}: +${achievement.reward} очков`,
+          duration: 4000,
+        });
+      }
+    });
+  }, [score, totalClicks, clickMultiplier, achievements, soundEnabled, toast]);
 
   useEffect(() => {
     const totalPointsPerSecond = autoClickers.reduce((total, clicker) => {
@@ -70,10 +121,19 @@ const Index = () => {
     }
   }, [autoClickersOwned, autoClickers]);
 
+  const playSound = (audioRef: React.MutableRefObject<HTMLAudioElement | null>) => {
+    if (soundEnabled && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play();
+    }
+  };
+
   const handleBirdClick = () => {
     setScore(score + clickMultiplier);
+    setTotalClicks(totalClicks + 1);
     setBirdAnimating(true);
     setScoreAnimating(true);
+    playSound(clickAudioRef);
     setTimeout(() => setBirdAnimating(false), 300);
     setTimeout(() => setScoreAnimating(false), 400);
   };
@@ -82,6 +142,7 @@ const Index = () => {
     if (score >= upgrade.cost) {
       setScore(score - upgrade.cost);
       setClickMultiplier(clickMultiplier + upgrade.multiplier);
+      playSound(upgradeAudioRef);
     }
   };
 
@@ -92,6 +153,7 @@ const Index = () => {
         ...prev,
         [autoClicker.id]: (prev[autoClicker.id] || 0) + 1
       }));
+      playSound(upgradeAudioRef);
     }
   };
 
@@ -113,16 +175,37 @@ const Index = () => {
     return total + (clicker.pointsPerSecond * owned);
   }, 0);
 
+  const unlockedAchievementsCount = achievements.filter(a => a.unlocked).length;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-200 via-pink-200 to-orange-200 p-4 md:p-8">
+      <audio ref={clickAudioRef} src="data:audio/wav;base64,UklGRhQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" />
+      <audio ref={upgradeAudioRef} src="data:audio/wav;base64,UklGRhQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" />
+      <audio ref={achievementAudioRef} src="data:audio/wav;base64,UklGRhQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=" />
+      
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-5xl md:text-7xl font-black text-purple-900 mb-2 drop-shadow-lg">
-            🐦 Птичий Кликер
-          </h1>
+          <div className="flex justify-center items-center gap-4 mb-4">
+            <h1 className="text-5xl md:text-7xl font-black text-purple-900 drop-shadow-lg">
+              🐦 Птичий Кликер
+            </h1>
+            <Button
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              variant="outline"
+              size="icon"
+              className="w-12 h-12 rounded-full border-2 border-purple-400"
+            >
+              <Icon name={soundEnabled ? 'Volume2' : 'VolumeX'} size={24} />
+            </Button>
+          </div>
           <p className="text-xl md:text-2xl text-purple-700 font-semibold">
             Кликай и прокачивайся!
           </p>
+          {unlockedAchievementsCount > 0 && (
+            <div className="mt-2 text-lg text-purple-600 font-semibold">
+              🏆 Достижений: {unlockedAchievementsCount}/{achievements.length}
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
@@ -342,7 +425,7 @@ const Index = () => {
               )}
             </Card>
 
-            <Card className="p-6 bg-white/80 backdrop-blur-sm border-4 border-blue-300">
+            <Card className="p-6 bg-white/80 backdrop-blur-sm border-4 border-blue-300 mb-6">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center">
                   <Icon name="Target" className="text-white" size={32} />
@@ -355,6 +438,50 @@ const Index = () => {
                     x{clickMultiplier}
                   </div>
                 </div>
+              </div>
+            </Card>
+
+            <Card className="p-6 bg-white/90 backdrop-blur-sm shadow-2xl border-4 border-yellow-300">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-12 h-12 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
+                  <Icon name="Award" className="text-white" size={24} />
+                </div>
+                <h2 className="text-3xl font-black text-yellow-600">
+                  Достижения
+                </h2>
+              </div>
+
+              <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                {achievements.map((achievement) => (
+                  <div
+                    key={achievement.id}
+                    className={`p-4 rounded-lg border-2 transition-all ${
+                      achievement.unlocked
+                        ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-400'
+                        : 'bg-gray-50 border-gray-300 opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className={`w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        achievement.unlocked ? 'bg-green-400' : 'bg-gray-300'
+                      }`}>
+                        <Icon name={achievement.icon as any} size={24} className="text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <div className={`font-bold text-lg ${achievement.unlocked ? 'text-green-700' : 'text-gray-600'}`}>
+                          {achievement.name}
+                          {achievement.unlocked && <span className="ml-2">✓</span>}
+                        </div>
+                        <div className="text-sm text-gray-600 mt-1">
+                          {achievement.description}
+                        </div>
+                        <div className={`text-sm font-semibold mt-1 ${achievement.unlocked ? 'text-yellow-600' : 'text-gray-500'}`}>
+                          Награда: +{achievement.reward} очков
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </Card>
           </div>
