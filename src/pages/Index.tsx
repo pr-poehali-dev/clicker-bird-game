@@ -48,6 +48,11 @@ const Index = () => {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [prestigeLevel, setPrestigeLevel] = useState(0);
+  const [prestigeBonus, setPrestigeBonus] = useState(1);
+  const [lastDailyBonus, setLastDailyBonus] = useState<string | null>(null);
+  const [dailyStreak, setDailyStreak] = useState(0);
+  const [showDailyBonus, setShowDailyBonus] = useState(false);
   const clickAudioRef = useRef<HTMLAudioElement | null>(null);
   const upgradeAudioRef = useRef<HTMLAudioElement | null>(null);
   const achievementAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -84,7 +89,65 @@ const Index = () => {
     if (savedScores) {
       setHighScores(JSON.parse(savedScores));
     }
+
+    const savedPrestige = localStorage.getItem('birdClickerPrestige');
+    if (savedPrestige) {
+      const { level, bonus } = JSON.parse(savedPrestige);
+      setPrestigeLevel(level);
+      setPrestigeBonus(bonus);
+    }
+
+    const savedDaily = localStorage.getItem('birdClickerDaily');
+    if (savedDaily) {
+      const { lastDate, streak } = JSON.parse(savedDaily);
+      setLastDailyBonus(lastDate);
+      setDailyStreak(streak);
+    }
+
+    checkDailyBonus();
   }, []);
+
+  const checkDailyBonus = () => {
+    const today = new Date().toDateString();
+    const savedDaily = localStorage.getItem('birdClickerDaily');
+    
+    if (!savedDaily) {
+      setShowDailyBonus(true);
+      return;
+    }
+
+    const { lastDate } = JSON.parse(savedDaily);
+    if (lastDate !== today) {
+      setShowDailyBonus(true);
+    }
+  };
+
+  const claimDailyBonus = () => {
+    const today = new Date().toDateString();
+    const yesterday = new Date(Date.now() - 86400000).toDateString();
+    
+    let newStreak = 1;
+    if (lastDailyBonus === yesterday) {
+      newStreak = dailyStreak + 1;
+    }
+
+    const bonusAmount = Math.floor(50 * newStreak * prestigeBonus);
+    setScore(score + bonusAmount);
+    setDailyStreak(newStreak);
+    setLastDailyBonus(today);
+    setShowDailyBonus(false);
+
+    localStorage.setItem('birdClickerDaily', JSON.stringify({
+      lastDate: today,
+      streak: newStreak
+    }));
+
+    toast({
+      title: `🎁 Ежедневный бонус получен!`,
+      description: `День ${newStreak}: +${bonusAmount} очков`,
+      duration: 4000,
+    });
+  };
 
   useEffect(() => {
     achievements.forEach((achievement) => {
@@ -129,7 +192,8 @@ const Index = () => {
   };
 
   const handleBirdClick = () => {
-    setScore(score + clickMultiplier);
+    const points = Math.floor(clickMultiplier * prestigeBonus);
+    setScore(score + points);
     setTotalClicks(totalClicks + 1);
     setBirdAnimating(true);
     setScoreAnimating(true);
@@ -170,6 +234,34 @@ const Index = () => {
     setShowLeaderboard(true);
   };
 
+  const canPrestige = score >= 50000;
+
+  const handlePrestige = () => {
+    if (!canPrestige) return;
+
+    const newLevel = prestigeLevel + 1;
+    const newBonus = 1 + (newLevel * 0.5);
+
+    setPrestigeLevel(newLevel);
+    setPrestigeBonus(newBonus);
+    setScore(0);
+    setTotalClicks(0);
+    setClickMultiplier(1);
+    setAutoClickersOwned({});
+    setAchievements(achievements.map(a => ({ ...a, unlocked: false })));
+
+    localStorage.setItem('birdClickerPrestige', JSON.stringify({
+      level: newLevel,
+      bonus: newBonus
+    }));
+
+    toast({
+      title: `⭐ Престиж ${newLevel} достигнут!`,
+      description: `Бонус к очкам: x${newBonus.toFixed(1)}`,
+      duration: 5000,
+    });
+  };
+
   const totalPointsPerSecond = autoClickers.reduce((total, clicker) => {
     const owned = autoClickersOwned[clicker.id] || 0;
     return total + (clicker.pointsPerSecond * owned);
@@ -206,7 +298,39 @@ const Index = () => {
               🏆 Достижений: {unlockedAchievementsCount}/{achievements.length}
             </div>
           )}
+          {prestigeLevel > 0 && (
+            <div className="mt-2 text-lg text-orange-600 font-black">
+              ⭐ Престиж уровень {prestigeLevel}
+            </div>
+          )}
         </div>
+
+        {showDailyBonus && (
+          <Card className="mb-6 p-6 bg-gradient-to-r from-yellow-100 to-orange-100 border-4 border-yellow-400 shadow-2xl animate-pop-in">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center animate-pulse-slow">
+                  <Icon name="Gift" className="text-white" size={32} />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-orange-700">
+                    🎁 Ежедневный бонус!
+                  </h3>
+                  <p className="text-orange-600 font-semibold">
+                    День {(lastDailyBonus === new Date(Date.now() - 86400000).toDateString() ? dailyStreak : 0) + 1} • 
+                    Награда: {Math.floor(50 * ((lastDailyBonus === new Date(Date.now() - 86400000).toDateString() ? dailyStreak : 0) + 1) * prestigeBonus)} очков
+                  </p>
+                </div>
+              </div>
+              <Button
+                onClick={claimDailyBonus}
+                className="bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white font-black py-4 px-8 text-lg shadow-lg"
+              >
+                Забрать!
+              </Button>
+            </div>
+          </Card>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
           <div className="lg:col-span-2">
@@ -219,8 +343,13 @@ const Index = () => {
                   очков
                 </div>
                 <div className="text-lg md:text-xl text-purple-500 font-semibold mt-2">
-                  +{clickMultiplier} за клик
+                  +{Math.floor(clickMultiplier * prestigeBonus)} за клик
                 </div>
+                {prestigeLevel > 0 && (
+                  <div className="text-sm text-orange-600 font-bold mt-1">
+                    ⭐ Престиж x{prestigeBonus.toFixed(1)}
+                  </div>
+                )}
                 {totalPointsPerSecond > 0 && (
                   <div className="text-md text-green-600 font-semibold mt-1 flex items-center justify-center gap-2">
                     <Icon name="TrendingUp" size={20} />
@@ -246,15 +375,29 @@ const Index = () => {
                 </button>
               </div>
 
-              <div className="flex justify-center mt-6">
+              <div className="flex justify-center gap-3 mt-6">
                 <Button
                   onClick={saveScore}
-                  className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 px-8 rounded-full shadow-lg hover:shadow-xl transition-all"
+                  className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-bold py-3 px-6 rounded-full shadow-lg hover:shadow-xl transition-all"
                 >
                   <Icon name="Trophy" size={20} className="mr-2" />
                   Сохранить рекорд
                 </Button>
+                {canPrestige && (
+                  <Button
+                    onClick={handlePrestige}
+                    className="bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white font-black py-3 px-6 rounded-full shadow-lg hover:shadow-xl transition-all animate-pulse-slow"
+                  >
+                    <Icon name="Star" size={20} className="mr-2" />
+                    ПРЕСТИЖ
+                  </Button>
+                )}
               </div>
+              {!canPrestige && (
+                <div className="text-center mt-4 text-sm text-gray-600">
+                  Престиж доступен с 50,000 очков
+                </div>
+              )}
             </Card>
           </div>
 
